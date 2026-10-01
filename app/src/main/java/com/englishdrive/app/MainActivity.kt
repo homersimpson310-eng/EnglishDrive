@@ -17,13 +17,16 @@ import java.util.Locale
 class MainActivity : Activity(), TextToSpeech.OnInitListener {
 
     private lateinit var tts: TextToSpeech
-    private lateinit var questionText: TextView
-    private lateinit var resultText: TextView
-    private lateinit var progressText: TextView
-    private lateinit var scoreText: TextView
 
-    private var currentQuestion = 0
+    private lateinit var content: LinearLayout
+
     private var score = 0
+    private var sessionSeconds = 0
+    private var sessionRunning = false
+
+    private val prefs by lazy {
+        getSharedPreferences("englishdrive", MODE_PRIVATE)
+    }
 
     private val questions = listOf(
         "What did you do last weekend?",
@@ -38,109 +41,249 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         "How do you think education will change in the future?"
     )
 
+    private var currentQuestion = 0
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        requestAudioPermission()
-
         tts = TextToSpeech(this, this)
 
-        createInterface()
-        showQuestion()
+        requestAudioPermission()
+
+        showHome()
     }
 
-    private fun createInterface() {
+    // ---------------------------------------------------------
+    // STARTSEITE
+    // ---------------------------------------------------------
 
-        val layout = LinearLayout(this).apply {
+    private fun showHome() {
+
+        content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(32, 40, 32, 32)
         }
 
         val title = TextView(this).apply {
-            text = "EnglishDrive"
+            text = "🚗 EnglishDrive"
             textSize = 30f
             gravity = Gravity.CENTER
         }
 
-        progressText = TextView(this).apply {
+        val subtitle = TextView(this).apply {
+            text = "Dein persönliches Englischtraining"
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setPadding(0, 10, 0, 30)
+        }
+
+        val level = TextView(this).apply {
+            text = "🎯 Lernweg\nA2/B1 → B2 → C1 → C2"
+            textSize = 20f
+            gravity = Gravity.CENTER
+            setPadding(0, 10, 0, 30)
+        }
+
+        val morning = Button(this).apply {
+            text = "🌅 Morgentraining\n15 Minuten"
+            textSize = 18f
+
+            setOnClickListener {
+                startSession("Morgentraining")
+            }
+        }
+
+        val evening = Button(this).apply {
+            text = "🌙 Abendtraining\n15 Minuten"
+            textSize = 18f
+
+            setOnClickListener {
+                startSession("Abendtraining")
+            }
+        }
+
+        val progress = TextView(this).apply {
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setPadding(0, 30, 0, 20)
+
+            val minutes =
+                prefs.getInt("minutes", 0)
+
+            val words =
+                prefs.getInt("words", 0)
+
+            val answers =
+                prefs.getInt("answers", 0)
+
+            val streak =
+                prefs.getInt("streak", 1)
+
+            text =
+                "📊 Dein Fortschritt\n\n" +
+                "⏱️ Lernzeit: $minutes Minuten\n" +
+                "📚 Wörter: $words\n" +
+                "🗣️ Antworten: $answers\n" +
+                "🔥 Streak: $streak Tage"
+        }
+
+        val reset = Button(this).apply {
+            text = "↻ Fortschritt zurücksetzen"
+
+            setOnClickListener {
+
+                prefs.edit().clear().apply()
+
+                showHome()
+            }
+        }
+
+        content.addView(title)
+        content.addView(subtitle)
+        content.addView(level)
+        content.addView(morning)
+        content.addView(evening)
+        content.addView(progress)
+        content.addView(reset)
+
+        setContentView(content)
+    }
+
+    // ---------------------------------------------------------
+    // LERNSSESSION
+    // ---------------------------------------------------------
+
+    private fun startSession(type: String) {
+
+        currentQuestion = 0
+        score = 0
+        sessionSeconds = 0
+        sessionRunning = true
+
+        showSession(type)
+    }
+
+    private fun showSession(type: String) {
+
+        content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(32, 40, 32, 32)
+        }
+
+        val title = TextView(this).apply {
+            text = "🚗 $type"
+            textSize = 28f
+            gravity = Gravity.CENTER
+        }
+
+        val timer = TextView(this).apply {
+            text = "⏱️ 15:00"
+            textSize = 22f
+            gravity = Gravity.CENTER
+            setPadding(0, 20, 0, 20)
+        }
+
+        val progress = TextView(this).apply {
+            text = "Übung ${currentQuestion + 1} von ${questions.size}"
             textSize = 16f
             gravity = Gravity.CENTER
         }
 
-        questionText = TextView(this).apply {
+        val question = TextView(this).apply {
+            text = questions[currentQuestion]
             textSize = 22f
             gravity = Gravity.CENTER
-            setPadding(0, 35, 0, 35)
+            setPadding(0, 30, 0, 30)
         }
 
-        val listenButton = Button(this).apply {
+        val listen = Button(this).apply {
             text = "🔊 Frage hören"
+
             setOnClickListener {
-                speak(questionText.text.toString())
+                speak(question.text.toString())
             }
         }
 
-        val answerButton = Button(this).apply {
+        val speakButton = Button(this).apply {
             text = "🎤 Antwort sprechen"
+
             setOnClickListener {
-                startSpeechRecognition()
+
+                startSpeechRecognition(
+                    question,
+                    progress
+                )
             }
         }
 
-        resultText = TextView(this).apply {
+        val result = TextView(this).apply {
+            text = "Antworte möglichst ausführlich auf Englisch."
             textSize = 18f
             gravity = Gravity.CENTER
-            setPadding(0, 25, 0, 25)
+            setPadding(0, 20, 0, 20)
         }
 
-        scoreText = TextView(this).apply {
-            textSize = 18f
-            gravity = Gravity.CENTER
-        }
-
-        val nextButton = Button(this).apply {
+        val next = Button(this).apply {
             text = "➡️ Nächste Übung"
+
             setOnClickListener {
-                nextQuestion()
+
+                currentQuestion++
+
+                if (currentQuestion >= questions.size) {
+                    finishSession()
+                } else {
+
+                    progress.text =
+                        "Übung ${currentQuestion + 1} von ${questions.size}"
+
+                    question.text =
+                        questions[currentQuestion]
+
+                    result.text =
+                        "Antworte möglichst ausführlich auf Englisch."
+
+                    speak(question.text.toString())
+                }
             }
         }
 
-        layout.addView(title)
-        layout.addView(progressText)
-        layout.addView(questionText)
-        layout.addView(listenButton)
-        layout.addView(answerButton)
-        layout.addView(resultText)
-        layout.addView(scoreText)
-        layout.addView(nextButton)
+        val home = Button(this).apply {
+            text = "🏠 Startseite"
 
-        setContentView(layout)
-    }
-
-    private fun showQuestion() {
-
-        if (currentQuestion >= questions.size) {
-            finishSession()
-            return
+            setOnClickListener {
+                finishSession()
+            }
         }
 
-        questionText.text = questions[currentQuestion]
+        content.addView(title)
+        content.addView(timer)
+        content.addView(progress)
+        content.addView(question)
+        content.addView(listen)
+        content.addView(speakButton)
+        content.addView(result)
+        content.addView(next)
+        content.addView(home)
 
-        progressText.text =
-            "Übung ${currentQuestion + 1} von ${questions.size}"
+        setContentView(content)
 
-        scoreText.text = "Punkte: $score"
-
-        resultText.text =
-            "Höre die Frage und antworte auf Englisch."
+        speak(question.text.toString())
     }
 
-    private fun startSpeechRecognition() {
+    // ---------------------------------------------------------
+    // SPRACHERKENNUNG
+    // ---------------------------------------------------------
+
+    private fun startSpeechRecognition(
+        question: TextView,
+        progress: TextView
+    ) {
 
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            resultText.text =
-                "Spracherkennung ist auf diesem Gerät nicht verfügbar."
+
             return
         }
 
@@ -150,29 +293,43 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         recognizer.setRecognitionListener(
             object : android.speech.RecognitionListener {
 
-                override fun onReadyForSpeech(params: Bundle?) {
-                    resultText.text = "🎤 Ich höre zu..."
+                override fun onReadyForSpeech(
+                    params: Bundle?
+                ) {
+                    progress.text =
+                        "🎤 Ich höre zu..."
                 }
 
                 override fun onBeginningOfSpeech() {
-                    resultText.text = "🎤 Sprich jetzt..."
+                    progress.text =
+                        "🎤 Sprich jetzt..."
                 }
 
-                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onRmsChanged(
+                    rmsdB: Float
+                ) {}
 
-                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onBufferReceived(
+                    buffer: ByteArray?
+                ) {}
 
                 override fun onEndOfSpeech() {
-                    resultText.text = "⏳ Auswertung..."
+                    progress.text =
+                        "⏳ Auswertung..."
                 }
 
-                override fun onError(error: Int) {
-                    resultText.text =
-                        "Ich konnte deine Antwort nicht erkennen. Bitte versuche es erneut."
+                override fun onError(
+                    error: Int
+                ) {
+                    progress.text =
+                        "Bitte versuche es erneut."
+
                     recognizer.destroy()
                 }
 
-                override fun onResults(results: Bundle?) {
+                override fun onResults(
+                    results: Bundle?
+                ) {
 
                     val answers =
                         results?.getStringArrayList(
@@ -198,99 +355,159 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             }
         )
 
-        val intent = Intent(
-            RecognizerIntent.ACTION_RECOGNIZE_SPEECH
-        ).apply {
-            putExtra(
-                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-            )
-            putExtra(
-                RecognizerIntent.EXTRA_LANGUAGE,
-                Locale.US
-            )
-            putExtra(
-                RecognizerIntent.EXTRA_PROMPT,
-                "Answer in English"
-            )
-        }
+        val intent =
+            Intent(
+                RecognizerIntent.ACTION_RECOGNIZE_SPEECH
+            ).apply {
+
+                putExtra(
+                    RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+                )
+
+                putExtra(
+                    RecognizerIntent.EXTRA_LANGUAGE,
+                    Locale.US
+                )
+
+                putExtra(
+                    RecognizerIntent.EXTRA_PROMPT,
+                    "Answer in English"
+                )
+            }
 
         recognizer.startListening(intent)
     }
 
-    private fun evaluateAnswer(answer: String) {
+    // ---------------------------------------------------------
+    // ANTWORT AUSWERTEN
+    // ---------------------------------------------------------
+
+    private fun evaluateAnswer(
+        answer: String
+    ) {
 
         if (answer.isBlank()) {
-            resultText.text = "Keine Antwort erkannt."
             return
         }
 
         val words =
-            answer.trim()
+            answer
+                .trim()
                 .split("\\s+".toRegex())
-                .filter { it.isNotBlank() }
 
-        val wordCount = words.size
+        val wordCount =
+            words.size
 
-        val points = when {
-            wordCount >= 15 -> 3
-            wordCount >= 8 -> 2
-            wordCount >= 3 -> 1
-            else -> 0
-        }
+        val points =
+            when {
+
+                wordCount >= 20 -> 3
+
+                wordCount >= 10 -> 2
+
+                wordCount >= 4 -> 1
+
+                else -> 0
+            }
 
         score += points
 
-        val feedback = when {
-            points == 3 ->
-                "🌟 Sehr gut! Du hast ausführlich geantwortet."
+        val answers =
+            prefs.getInt(
+                "answers",
+                0
+            ) + 1
 
-            points == 2 ->
-                "👍 Gut! Versuche beim nächsten Mal noch etwas ausführlicher zu antworten."
+        val minutes =
+            prefs.getInt(
+                "minutes",
+                0
+            )
 
-            points == 1 ->
-                "🙂 Gute Richtung. Versuche mehr Details zu nennen."
-
-            else ->
-                "💪 Versuche mit vollständigen Sätzen zu antworten."
-        }
-
-        resultText.text =
-            "$feedback\n\nDeine Antwort:\n$answer"
-
-        scoreText.text =
-            "Punkte: $score"
+        prefs.edit()
+            .putInt(
+                "answers",
+                answers
+            )
+            .putInt(
+                "minutes",
+                minutes + 1
+            )
+            .apply()
     }
 
-    private fun nextQuestion() {
-
-        currentQuestion++
-
-        showQuestion()
-
-        speak(questionText.text.toString())
-    }
+    // ---------------------------------------------------------
+    // SESSION ENDE
+    // ---------------------------------------------------------
 
     private fun finishSession() {
 
-        questionText.text =
-            "🎉 Training abgeschlossen!"
+        sessionRunning = false
 
-        progressText.text =
-            "EnglishDrive"
+        val answers =
+            prefs.getInt(
+                "answers",
+                0
+            )
 
-        resultText.text =
-            "Du hast alle Übungen absolviert."
+        val minutes =
+            prefs.getInt(
+                "minutes",
+                0
+            )
 
-        scoreText.text =
-            "Gesamtpunkte: $score"
+        content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(32, 60, 32, 32)
+        }
+
+        val title = TextView(this).apply {
+            text = "🎉 Training abgeschlossen!"
+            textSize = 28f
+            gravity = Gravity.CENTER
+        }
+
+        val result = TextView(this).apply {
+
+            text =
+                "Sehr gut!\n\n" +
+                "🏆 Punkte: $score\n" +
+                "🗣️ Antworten: $answers\n" +
+                "⏱️ Lernzeit: $minutes Minuten"
+
+            textSize = 20f
+            gravity = Gravity.CENTER
+            setPadding(0, 40, 0, 40)
+        }
+
+        val home = Button(this).apply {
+            text = "🏠 Zur Startseite"
+
+            setOnClickListener {
+                showHome()
+            }
+        }
+
+        content.addView(title)
+        content.addView(result)
+        content.addView(home)
+
+        setContentView(content)
 
         speak(
-            "Well done! You have completed today's EnglishDrive session."
+            "Well done! Your English training is complete."
         )
     }
 
-    private fun speak(text: String) {
+    // ---------------------------------------------------------
+    // TEXT TO SPEECH
+    // ---------------------------------------------------------
+
+    private fun speak(
+        text: String
+    ) {
 
         tts.speak(
             text,
@@ -300,6 +517,20 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         )
     }
 
+    override fun onInit(
+        status: Int
+    ) {
+
+        if (
+            status ==
+            TextToSpeech.SUCCESS
+        ) {
+
+            tts.language =
+                Locale.US
+        }
+    }
+
     private fun requestAudioPermission() {
 
         if (
@@ -307,23 +538,20 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 Manifest.permission.RECORD_AUDIO
             ) != PackageManager.PERMISSION_GRANTED
         ) {
+
             requestPermissions(
-                arrayOf(Manifest.permission.RECORD_AUDIO),
+                arrayOf(
+                    Manifest.permission.RECORD_AUDIO
+                ),
                 100
             )
-        }
-    }
-
-    override fun onInit(status: Int) {
-
-        if (status == TextToSpeech.SUCCESS) {
-            tts.language = Locale.US
         }
     }
 
     override fun onDestroy() {
 
         if (::tts.isInitialized) {
+
             tts.stop()
             tts.shutdown()
         }
